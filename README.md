@@ -27,6 +27,15 @@ Welcome to OpenHands (formerly OpenDevin), a platform for software development a
 OpenHands agents can do anything a human developer can: modify code, run commands, browse the web,
 call APIs, and yes—even copy code snippets from StackOverflow.
 
+### New in v0.30: Model Context Protocol (MCP) Integration
+- Standardized interface for LLM context provisioning
+- Secure tool execution with command whitelisting
+- Configurable server (port 8000 by default)
+- Resources/Tools/Prompts management via:
+  - `openhands://config` - System configuration
+  - `openhands://codebase` - Project metadata
+  - `openhands://task/current` - Active task status
+
 Learn more at [docs.all-hands.dev](https://docs.all-hands.dev), or jump to the [Quick Start](#-quick-start).
 
 > [!IMPORTANT]
@@ -36,6 +45,93 @@ Learn more at [docs.all-hands.dev](https://docs.all-hands.dev), or jump to the [
 
 ![App screenshot](./docs/static/img/screenshot.png)
 
+## Model Context Protocol (MCP) API
+
+### Authentication
+```bash
+# All requests require JWT authentication
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/mcp
+```
+
+### Core Endpoints
+
+#### Configuration (`openhands://config`)
+- **Method**: GET
+- **Auth**: Read-only token
+- **Response**:
+  ```json
+  {
+    "llm": {
+      "provider": "anthropic",
+      "model": "claude-3-opus"
+    },
+    "sandbox": {
+      "type": "docker",
+      "workspace": "/workspace"
+    },
+    "mcp": {
+      "enabled": true,
+      "port": 8000,
+      "logging": false
+    }
+  }
+  ```
+
+#### Codebase Metadata (`openhands://codebase`)
+- **Method**: GET  
+- **Auth**: Read-only token
+- **Fields**:
+  - `language`: Primary codebase language
+  - `version`: Current version
+  - `dependencies`: Core dependencies
+- **Example**:
+  ```bash
+  curl -H "Authorization: Bearer $TOKEN" \
+    http://localhost:8000/mcp/openhands://codebase
+  ```
+
+#### Task Stream (`openhands://task/current`)
+- **Method**: SSE (Server-Sent Events)
+- **Auth**: Read-write token
+- **Events**:
+  ```json
+  {
+    "event": "state_update",
+    "data": {
+      "status": "executing",
+      "command": "python test.py",
+      "timestamp": "2025-04-01T12:00:00Z"
+    }
+  }
+  ```
+
+### Security
+- All endpoints require JWT authentication
+- Tokens are generated via `/auth/login`
+- Recommended scopes:
+  - `mcp:read` - For monitoring
+  - `mcp:write` - For task control
+
+### Full Example
+```bash
+# 1. Authenticate
+TOKEN=$(curl -X POST http://localhost:8000/auth/login -d '{"user":"admin"}')
+
+# 2. Query configuration
+curl -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8000/mcp/openhands://config
+
+# 3. Stream task updates
+curl -N -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8000/mcp
+```
+
+
+  
+    
+
+
+
 ## ⚡ Quick Start
 
 The easiest way to run OpenHands is in Docker.
@@ -43,14 +139,19 @@ See the [Running OpenHands](https://docs.all-hands.dev/modules/usage/installatio
 system requirements and more information.
 
 ```bash
+# Pull latest runtime image
 docker pull docker.all-hands.dev/all-hands-ai/runtime:0.30-nikolaik
 
+# Run OpenHands with MCP support
 docker run -it --rm --pull=always \
     -e SANDBOX_RUNTIME_CONTAINER_IMAGE=docker.all-hands.dev/all-hands-ai/runtime:0.30-nikolaik \
+    -e MCP_ENABLED=true \
+    -e MCP_PORT=8000 \
     -e LOG_ALL_EVENTS=true \
     -v /var/run/docker.sock:/var/run/docker.sock \
     -v ~/.openhands-state:/.openhands-state \
     -p 3000:3000 \
+    -p 8000:8000 \
     --add-host host.docker.internal:host-gateway \
     --name openhands-app \
     docker.all-hands.dev/all-hands-ai/openhands:0.30
